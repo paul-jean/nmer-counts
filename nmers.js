@@ -1,27 +1,35 @@
 var fs = require("fs");
-
-var buffSize = 1000;
-var buff = new Buffer(buffSize);
-
 var fname = "./chrM.fa";
-var fd = fs.openSync(fname, "r");
+var nmerSize = 8;
 
-var nmerTree = {};
+var countNmers = function(fastaFile, nmerSize) {
+  var fd = fs.openSync(fastaFile, "r");
+  // move the file position to the end of the header line
+  var headerBuff = new Buffer(1);
+  var pos = 0;
+  while ( !fs.readSync(fd, headerBuff, 0, 1, pos).match(/\n/) ) {
+    pos += 1;
+  }
+  // count nmers in the remaining lines
+  var nmerTree = {};
+  var buffSize = 1000;
+  var buff = new Buffer(buffSize);
+  var numBytesRead = 0;
+  var chunk = "";
+  var overhang = "";
+  while ( (numBytesRead = fs.readSync(fd, buff, 0, buffSize, pos)) > 0) {
+    chunk = overhang + cleanString(buffer);
+    writeNmers(nmerTree, chunk, nmerSize);
+    overhang = getOverhang(chunk, nmerSize);
+    pos += numBytesRead;
+  }
 
-var numBytesRead = 0;
-var pos = 0;
-var chunk = "";
-var overhang = "";
-while ( (numBytesRead = fs.readSync(fd, buff, 0, buffSize, pos)) > 0) {
-  pos += numBytesRead;
-  chunk = overhang + cleanString(buffer);
-  writeNmers(nmerTree, chunk);
-  overhang = getOverhang(chunk);
-}
+  return nmerTree;
+};
 
-var getOverhang = function(chunk) {
+var getOverhang = function(chunk, nmerSize) {
   var chunkLength = chunk.length;
-  var overhangLength = Math.min(7, chunkLength);
+  var overhangLength = Math.min(nmerSize - 1, chunkLength);
   var overhang = "";
   for (var j = overhangLength; j > 0; j --) {
     overhang += chunk[chunkLength - j];
@@ -33,33 +41,53 @@ var cleanString = function (buffer) {
   var buffLength = buffer.length;
   var cleaned = "";
   var c;
-  for (var i = 0; i < buffLength; i++) {
+  for (var i = 0; i < buffLength; i ++) {
     c = buffer[i];
-    if (!c.match(/[AGCT]/)) continue;
-    cleaned += c;
+    if (c.match(/[AGCT]/)) {
+      cleaned += c;
+    }
   }
   return cleaned;
 };
 
-// TODO implement
-var writeNmers = function(tree, chunk) {
-  var nmer = "";
+var writeNmers = function(tree, chunk, nmerSize) {
+  var nmer;
   var pos = 0;
   var base;
-  // TODO check chunk length edge cases
-  for (var i = 0; i < chunk.length - 8; i ++) {
+  var lastNmerIndex = chunk.length - nmerSize;
+  var i, j;
+  var treeRef;
+  if (lastNmerIndex < 0) return;
+  for (i = 0; i <= lastNmerIndex; i ++) {
+    treeRef = tree;
     nmer = "";
-    // TODO only do this loop if there are 8 more bases
-    for (var j = i; j < 8; j ++) {
-      base = chunk[j];
-      if (!tree[base]) {
-        tree[base] = {};
+    for (j = 0; j < nmerSize; j ++) {
+      base = chunk[i + j];
+      nmer += base;
+      if (!treeRef[base]) {
+        treeRef[base] = {};
       }
-      tree = tree[base];
+      treeRef = treeRef[base];
     }
-    tree[base] ++;
+    if (typeof treeRef[base] != 'number') {
+      treeRef[base] = 0;
+    }
+    treeRef[base] ++;
   }
 };
 
-// TODO implement
-var printNmerCounts = function(tree) {};
+var printNmerCounts = function(tree, nmer) {
+  var bases = ["A", "C", "G", "T"];
+  bases.map(function(b) {
+    if (tree[b]) {
+      if (typeof tree[b] == 'number') {
+        console.log(nmer + ": " + tree[b]);
+      } else {
+        printNmerCounts(tree[b], nmer + b);
+      }
+    }
+  });
+};
+
+exports.writeNmers = writeNmers;
+exports.printNmerCounts = printNmerCounts;
